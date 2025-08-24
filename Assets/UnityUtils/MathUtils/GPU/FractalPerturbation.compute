@@ -1,0 +1,76 @@
+#pragma kernel MandelbrotKernel
+#include "DD_Complex.hlsl"
+
+RWTexture2D<float4> Result;
+StructuredBuffer<float4> OrbitHL;
+
+int Width, Height, MaxIters;
+float Bailout;
+
+float2 C0_Re;    // reference orbit center
+float2 C0_Im;
+float2 Scale;    // world units per pixel
+
+[numthreads(8,8,1)]
+void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Width || id.y >= Height) return;
+
+    // --- Pixel offset from center ---
+    float2 px = float2((float)id.x + 0.5, (float)id.y + 0.5);
+    float2 centerPx = float2(Width * 0.5, Height * 0.5);
+    float2 offsetPx = px - centerPx;
+
+    // --- delta relative to reference orbit (no screen center addition!) ---
+    DDComplex delta_c;
+    delta_c.re = dd_mul_float(Scale, offsetPx.x);
+    delta_c.im = dd_mul_float(Scale, offsetPx.y);
+
+    // --- Initialize perturbation delta ---
+    DDComplex zDelta;
+    zDelta.re = dd_make(0.0);
+    zDelta.im = dd_make(0.0);
+
+    float escapeIter = (float)MaxIters;
+    bool escaped = false;
+
+    // --- Iterate using reference orbit ---
+    for (uint n = 0; n < MaxIters; n++)
+    {
+        float4 o = OrbitHL[n];
+        DDComplex Zref;
+        Zref.re = float2(o.x, o.y);
+        Zref.im = float2(o.z, o.w);
+
+        // delta_{n+1} = 2 * Zref * delta_n + delta_n^2 + delta_c
+        DDComplex term1 = dd_complex_mul(Zref, zDelta);
+        term1.re = dd_mul_float(term1.re, 2.0);
+        term1.im = dd_mul_float(term1.im, 2.0);
+
+        DDComplex term2 = dd_complex_sqr(zDelta);
+        zDelta = dd_complex_add(dd_complex_add(term1, term2), delta_c);
+
+        // z = Zref + delta
+        DDComplex z;
+        z.re = dd_add(Zref.re, zDelta.re);
+        z.im = dd_add(Zref.im, zDelta.im);
+
+        // Escape check using hi part
+        float r2 = z.re.x * z.re.x + z.im.x * z.im.x;
+        if (!escaped && r2 > Bailout)
+        {
+            escaped = true;
+            float mag = sqrt(r2);
+            float nu = (float)n + 1.0 - log2(log(max(mag, 1e-7)));
+            escapeIter = nu;
+            break;
+        }
+    }
+
+    // --- Coloring ---
+    float t = escapeIter / (float)MaxIters;
+    float3 col = lerp(float3(0.05,0.02,0.1), float3(0.9,0.9,1.0), saturate(pow(t, 0.35)));
+    if (!escaped) col = float3(0.0, 0.0, 0.0);
+
+    Result[int2(id.xy)] = float4(col, 1.0);
+}
