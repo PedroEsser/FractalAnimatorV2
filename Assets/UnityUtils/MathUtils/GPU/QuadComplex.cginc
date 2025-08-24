@@ -1,8 +1,7 @@
 struct QuadComplex {
-    float4 real; // Real part (QuadFloat)
-    float4 imag; // Imaginary part (QuadFloat)
+    float4 real;
+    float4 imag;
 };
-
 
 QuadComplex AddQuadComplex(QuadComplex a, QuadComplex b) {
     QuadComplex result;
@@ -18,8 +17,8 @@ QuadComplex MulQuadComplex(QuadComplex a, QuadComplex b) {
     float4 bc = MulQuadFloat(a.imag, b.real);
 
     QuadComplex result;
-    result.real = AddQuadFloat(ac, MulQuadFloat(bd, -1.0)); // real = ac - bd
-    result.imag = AddQuadFloat(ad, bc);                     // imag = ad + bc
+    result.real = AddQuadFloat(ac, MulQuadFloat(bd, -1.0));
+    result.imag = AddQuadFloat(ad, bc);
     return result;
 }
 

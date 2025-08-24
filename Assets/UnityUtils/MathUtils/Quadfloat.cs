@@ -29,9 +29,14 @@ public struct QuadFloat
         return Renormalize(s0, s1, s2, s3 + e3);
     }
 
+    public static QuadFloat operator -(QuadFloat x)
+    {
+        return new QuadFloat(-x.a, -x.b, -x.c, -x.d);
+    }
+
     public static QuadFloat operator -(QuadFloat x, QuadFloat y)
     {
-        return x + y * -1f;
+        return x + (-y);
     }
 
     // Multiply by scalar float (simple version)
@@ -79,6 +84,44 @@ public struct QuadFloat
         return Renormalize(t0, t1, t2, t3 + t4);
     }
 
+    public static QuadFloat operator /(QuadFloat x, float y)
+    {
+        return x * (1.0f / y);
+    }
+
+    public static QuadFloat Reciprocal(QuadFloat y) {
+        float y_approx = 1.0f / y.a;
+        QuadFloat qy = new QuadFloat(y_approx, 0, 0, 0);
+        QuadFloat one = new QuadFloat(1, 0, 0, 0);
+        QuadFloat yqy = y * qy;
+        QuadFloat diff = one + qy * (one + yqy * -1.0f);
+        return qy * diff;
+    }
+
+    public static QuadFloat operator /(QuadFloat x, QuadFloat y)
+    {
+        return x * Reciprocal(y);
+    }
+
+    public static QuadFloat Pow(QuadFloat x, int n)
+    {
+        if (n < 0) return Reciprocal(Pow(x, -n));
+
+        QuadFloat result = new QuadFloat(1, 0, 0, 0);
+        QuadFloat baseVal = x;
+        while (n > 0)
+        {
+            if ((n & 1) != 0)
+                result *= baseVal;
+            baseVal *= baseVal;
+            n >>= 1;
+        }
+        return result;
+    }
+
+
+    public static QuadFloat operator ^(QuadFloat x, int n) { return Pow(x, n); }
+
     // Convert to Vector4 to send to shader
     public Vector4 ToVector4() => new Vector4(a, b, c, d);
 
@@ -106,20 +149,34 @@ public struct QuadFloat
         lo = x - hi;
     }
 
-    private static QuadFloat Renormalize(float a, float b, float c, float d)
+    private static void QuickTwoSum(float a, float b, out float s, out float e)
     {
-        float s, e;
-        TwoSum(a, b, out s, out e);
-        a = s; b = e;
-        TwoSum(a, c, out s, out e);
-        a = s; c = e;
-        TwoSum(a, d, out s, out e);
-        a = s; d = e;
-        return new QuadFloat(a, b + c, d, 0);
+        s = a + b;               // requires |a| >= |b|
+        e = b - (s - a);
     }
 
-    public static string ToString(QuadFloat q)
+// Replace Renormalize with this
+    private static QuadFloat Renormalize(float a, float b, float c, float d)
     {
-        return $"({q.a}, {q.b}, {q.c}, {q.d})";
+        // 1) Order by magnitude so QuickTwoSum precondition roughly holds
+        //    (small cost, big stability win)
+        float[] v = { a, b, c, d };
+        System.Array.Sort(v, (x, y) => Mathf.Abs(y).CompareTo(Mathf.Abs(x)));
+        float x0 = v[0], x1 = v[1], x2 = v[2], x3 = v[3];
+
+        // 2) Cascade QuickTwoSum to distribute roundoff into lower limbs
+        float s0, e0; QuickTwoSum(x0, x1, out s0, out e0);
+        float s1, e1; QuickTwoSum(e0, x2, out s1, out e1);
+        float s2, e2; QuickTwoSum(e1, x3, out s2, out e2);
+
+        // 3) Final tidy: fold any residual into the tail, keeping 4 limbs
+        float r1, r2; QuickTwoSum(s1, s2, out r1, out r2);
+        float r2b, r3; QuickTwoSum(r2, e2, out r2b, out r3);
+        return new QuadFloat(s0, r1, r2b, r3);
+    }
+
+    public override string ToString()
+    {
+        return $"({a}, {b}, {c}, {d})";
     }
 }

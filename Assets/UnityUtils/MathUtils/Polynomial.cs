@@ -165,4 +165,12 @@ public class Polynomial
         return true;
     }
 
+    public override int GetHashCode()
+    {
+        int hash = 0;
+        for (int i = 0; i < Coefficients.Length; i++)
+            hash += Coefficients[i].GetHashCode() * (i + 1);
+        return hash;
+    }
+
 }
