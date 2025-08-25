@@ -1,8 +1,10 @@
 using System;
+using System.Numerics;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using static ComplexDouble;
+using static HighPrecision;
 
 public class FractalPerturbation : MonoBehaviour
 {
@@ -13,9 +15,11 @@ public class FractalPerturbation : MonoBehaviour
     public RenderTexture target;
 
     [Header("View")]
-    public double centerRe = 0;   // tweak for fun
-    public double centerIm =  0;
-    public double pixelScale = 3.0 / 1024.0;       // world units per pixel (zoom)
+    public Vector2Int c0Pixel = new Vector2Int(-1, -1);
+    public ComplexDouble c0;         // world coords of reference orbit
+    public ComplexDouble center = new ComplexDouble(-0.717413872065201, 0.208571862722845);        // -0,717413872065201 + 0,208571862722845i
+    public ComplexDouble centerDiff;
+    public double pixelScale = 3.0 / 1024.0;   // world units per pixel
 
     [Header("Iterations")]
     public int maxIters = 200;
@@ -28,11 +32,7 @@ public class FractalPerturbation : MonoBehaviour
     ComputeBuffer orbitBuffer;
     public RawImage image;
 
-    struct OrbitHL
-    {
-        public float re_hi, re_lo, im_hi, im_lo;
-    }
-
+    UnityEngine.Vector2? lastMousePos;
     void OnEnable()
     {
         CreateTarget();
@@ -46,18 +46,39 @@ public class FractalPerturbation : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKey(KeyCode.Q)) pixelScale *= 0.98;
-        if (Input.GetKey(KeyCode.E)) pixelScale /= 0.98;
-
-        double pan = pixelScale;
-        if (Input.GetKey(KeyCode.W)) centerIm += pan;
-        if (Input.GetKey(KeyCode.S)) centerIm -= pan;
-        if (Input.GetKey(KeyCode.A)) centerRe -= pan;
-        if (Input.GetKey(KeyCode.D)) centerRe += pan;
+        HandleInput();
 
         BuildAndUploadOrbit();
         Dispatch();
         image.texture = target;
+    }
+
+    void HandleInput()
+    {
+        float scroll = Input.mouseScrollDelta.y;
+        if (Mathf.Abs(scroll) > 0.001f)
+        {
+            double zoomFactor = Math.Pow(0.9, scroll);
+            pixelScale *= zoomFactor;
+        }
+
+        if (Input.GetMouseButtonDown(0))
+            lastMousePos = Input.mousePosition;
+        else if (Input.GetMouseButton(0) && lastMousePos.HasValue)
+        {
+            UnityEngine.Vector2 delta = (UnityEngine.Vector2)Input.mousePosition - lastMousePos.Value;
+            lastMousePos = Input.mousePosition;
+
+            center = center - ComplexDouble.AsComplexDouble(delta) * pixelScale;
+        }
+        else if (Input.GetMouseButtonUp(0))
+            lastMousePos = null;
+
+        double pan = pixelScale * 10;
+        if (Input.GetKey(KeyCode.W)) center._im += pan;
+        if (Input.GetKey(KeyCode.S)) center._im -= pan;
+        if (Input.GetKey(KeyCode.A)) center._re -= pan;
+        if (Input.GetKey(KeyCode.D)) center._re += pan;
     }
 
     void CreateTarget()
@@ -84,109 +105,176 @@ public class FractalPerturbation : MonoBehaviour
         }
     }
 
-    List<(double re, double im)> BuildReferenceOrbit(double cRe, double cIm, int N)
+    List<ComplexDouble> BuildReferenceOrbit(ComplexDouble c, int N)
     {
-        var list = new List<(double, double)>(N);
-        double zr = 0.0, zi = 0.0;
+        var list = new List<ComplexDouble>(N);
+        ComplexDouble z = new ComplexDouble(0.0, 0.0);
 
         for (int i = 0; i < N; i++)
         {
-            list.Add((zr, zi));
-            double zr2 = zr * zr - zi * zi + cRe;
-            double zi2 = 2.0 * zr * zi + cIm;
-            zr = zr2; zi = zi2;
+            list.Add(z);
+            z = z * z + c;
         }
         return list;
     }
 
-    bool IsSafeReference(double cRe, double cIm, int maxIters, float bailout)
+    bool IsSafeReference(ComplexDouble c, int maxIters, float bailout)
     {
-        double zr = 0.0, zi = 0.0;
-        for (int n = 0; n < maxIters; n++)
+        ComplexDouble z = new ComplexDouble(0.0, 0.0);
+        for (int n = 0; n < maxIters+10; n++)
         {
-            double zr2 = zr * zr - zi * zi + cRe;
-            double zi2 = 2.0 * zr * zi + cIm;
-            zr = zr2;
-            zi = zi2;
-
-            if (zr * zr + zi * zi > bailout) return false;
+            z = z * z + c;
+            if (z.squaredNorm() > bailout) return false;
         }
         return true;
     }
 
-    // Find nearest safe reference pixel (search radius in pixels)
-    (Vector2 referenceOffset, double refRe, double refIm) PickSafeReference(
-        double centerRe, double centerIm, double pixelScale, int maxIters, float bailout, int maxRadius = 10)
+    (bool found, int dx, int dy, ComplexDouble cRef) PickSafeReferencePixel(
+        int width, int height,
+        int centerX, int centerY,
+        ComplexDouble center,
+        double pixelScale, int maxIters, float bailout,
+        Vector2Int? lastRefPixel = null,
+        int maxRadius = 5)
     {
-        // Spiral search around center pixel
+        // Search near last reference first
+        /*if (lastRefPixel.HasValue)
+        {
+            int baseX = lastRefPixel.Value.x;
+            int baseY = lastRefPixel.Value.y;
+
+            for (int r = 0; r <= maxRadius; r++)
+            {
+                for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    int px = baseX + dx;
+                    int py = baseY + dy;
+                    if (px < 0 || py < 0 || px >= width || py >= height) continue;
+
+                    ComplexDouble p = new ComplexDouble(px - centerX, py - centerY);
+                    p *= pixelScale;
+                    p += center;
+
+                    if (IsSafeReference(p, maxIters, bailout))
+                        return (true, px - centerX, py - centerY, p);
+                }
+            }
+        }*/
+
+        // Fallback: search around screen center
         for (int r = 0; r <= maxRadius; r++)
         {
             for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++)
             {
-                for (int dx = -r; dx <= r; dx++)
-                {
-                    double testRe = centerRe + dx * pixelScale;
-                    double testIm = centerIm + dy * pixelScale;
+                int px = centerX + dx;
+                int py = centerY + dy;
+                if (px < 0 || py < 0 || px >= width || py >= height) continue;
 
-                    if (IsSafeReference(testRe, testIm, maxIters, bailout))
-                        return (new Vector2(dx, dy), testRe, testIm);
-                }
+                ComplexDouble p = new ComplexDouble(dx, dy);
+                p *= pixelScale;
+                p += center;
+
+                if (IsSafeReference(p, maxIters, bailout))
+                    return (true, dx, dy, p);
             }
         }
 
-        // Fallback: use center itself if nothing found
-        return (Vector2.zero, centerRe, centerIm);
+        return (false, 0, 0, center);
     }
 
     void BuildAndUploadOrbit()
     {
         ReleaseBuffers();
 
-        var (refOffset, cRefRe, cRefIm) = PickSafeReference(
-            centerRe, centerIm, pixelScale, maxIters, bailout);
+        int cx = width / 2;
+        int cy = height / 2;
 
-        var orbit = BuildReferenceOrbit(cRefRe, cRefIm, maxIters);
+        bool needNewRef = false;
 
-        OrbitHL[] packed = new OrbitHL[orbit.Count];
-        for (int i = 0; i < orbit.Count; i++)
+        // --- Check if current C0 orbit is unsafe ---
+        if (!IsSafeReference(c0, maxIters, bailout))
+            needNewRef = true;
+
+        // --- Check if C0 too far from center (screen-space threshold) ---
+        ComplexDouble diff = center - c0;
+        if (diff.squaredNorm() > pixelScale * pixelScale * 300)
+            needNewRef = true;
+
+        // --- Pick a new safe reference orbit if needed ---
+        if (needNewRef)
         {
-            SplitDouble(orbit[i].re, out float rhi, out float rlo);
-            SplitDouble(orbit[i].im, out float ihi, out float ilo);
-            packed[i] = new OrbitHL { re_hi = rhi, re_lo = rlo, im_hi = ihi, im_lo = ilo };
+            var pick = PickSafeReferencePixel(
+                width, height, cx, cy,
+                center,
+                pixelScale, maxIters, bailout,
+                c0Pixel.x >= 0 ? (Vector2Int?)c0Pixel : null
+            );
+
+            if (pick.found)
+            {
+                c0Pixel = new Vector2Int(cx + pick.dx, cy + pick.dy);
+                c0 = pick.cRef;
+                Debug.Log($"Found safe reference at pixel {c0Pixel} with value {c0}");
+            }
+            else
+            {
+                Debug.Log($"Failed to find safe reference");
+            }
         }
+
+        // --- Build reference orbit at C0 ---
+        var orbit = BuildReferenceOrbit(c0, maxIters);
+
+        // --- Pack orbit for GPU ---
+        var packed = new UnityEngine.Vector4[orbit.Count];
+        for (int i = 0; i < orbit.Count; i++)
+            packed[i] = orbit[i].AsVector4();
 
         orbitBuffer = new ComputeBuffer(packed.Length, sizeof(float) * 4);
         orbitBuffer.SetData(packed);
 
-        // --- 4) Compute C0 and scale as dd ---
-        SplitDouble(cRefRe, out float c0re_hi, out float c0re_lo);
-        SplitDouble(cRefIm, out float c0im_hi, out float c0im_lo);
-        SplitDouble(pixelScale, out float scl_hi, out float scl_lo);
-
         int kernel = shader.FindKernel("MandelbrotKernel");
+
         shader.SetInt("Width", width);
         shader.SetInt("Height", height);
         shader.SetInt("MaxIters", maxIters);
         shader.SetFloat("Bailout", bailout);
 
-        // --- 5) Pass reference orbit center (C0) ---
-        shader.SetVector("C0_Re", new Vector2(c0re_hi, c0re_lo));
-        shader.SetVector("C0_Im", new Vector2(c0im_hi, c0im_lo));
+        // --- Upload C0 ---
+        shader.SetVector("C0_Re", AsVector2(c0.re));
+        shader.SetVector("C0_Im", AsVector2(c0.im));
 
-        // --- 6) Pass screen center separately for mapping ---
-        SplitDouble(centerRe, out float centerRe_hi, out float centerRe_lo);
-        SplitDouble(centerIm, out float centerIm_hi, out float centerIm_lo);
-        shader.SetVector("ScreenCenter_Re", new Vector2(centerRe_hi, centerRe_lo));
-        shader.SetVector("ScreenCenter_Im", new Vector2(centerIm_hi, centerIm_lo));
 
-        shader.SetVector("Scale", new Vector2(scl_hi, scl_lo));
-        shader.SetInt("OrbitLength", maxIters);
+        BigInteger c0FixedRe = HighPrecision.ToFixed(c0.re);
+        BigInteger c0FixedIm = HighPrecision.ToFixed(c0.im);
+
+        BigInteger centerFixedRe = HighPrecision.ToFixed(center.re);
+        BigInteger centerFixedIm = HighPrecision.ToFixed(center.im);
+
+        BigInteger deltaFixedRe = centerFixedRe - c0FixedRe;
+        BigInteger deltaFixedIm = centerFixedIm - c0FixedIm;
+
+        // Convert delta to DDComplex for GPU
+        double deltaRe = HighPrecision.ToDouble(deltaFixedRe);
+        double deltaIm = HighPrecision.ToDouble(deltaFixedIm);
+        
+
+        shader.SetVector("Center_Re_Diff", ComplexDouble.AsVector2(deltaRe));
+        shader.SetVector("Center_Im_Diff", ComplexDouble.AsVector2(deltaIm));
+
+        // --- Upload scale ---
+        shader.SetVector("Scale", new UnityEngine.Vector2((float)pixelScale, 0f));
+
+        // --- Upload C0 pixel for perturbation ---
+        shader.SetInts("C0Pixel", c0Pixel.x, c0Pixel.y);
+
+        // --- Set orbit buffer and result texture ---
         shader.SetBuffer(kernel, "OrbitHL", orbitBuffer);
-
         CreateTarget();
         shader.SetTexture(kernel, "Result", target);
     }
-
 
     void Dispatch()
     {

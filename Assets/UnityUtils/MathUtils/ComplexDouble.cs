@@ -4,8 +4,11 @@ using System;
 [Serializable()]
 public class ComplexDouble
 {
-    public double re { get; }
-    public double im { get; }
+    public double re { get; private set; }
+    public double im { get; private set; }
+
+    public double _re { get => re; set => re = value; }
+    public double _im { get => im; set => im = value; }
 
     public ComplexDouble() : this(0, 0) { }
     public ComplexDouble(double re, double im)
@@ -122,5 +125,16 @@ public class ComplexDouble
         float h = (float)x;
         hi = h;
         lo = (float)(x - (double)h);
+    }
+
+    public static Vector2 AsVector2(double d)
+    {
+        SplitDouble(d, out float hi, out float lo);
+        return new Vector2(hi, lo);
+    }
+
+    public static ComplexDouble AsComplexDouble(Vector2 v)
+    {
+        return new ComplexDouble(v.x, v.y);
     }
 }

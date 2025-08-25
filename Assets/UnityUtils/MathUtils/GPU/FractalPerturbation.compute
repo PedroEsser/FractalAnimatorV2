@@ -9,6 +9,9 @@ float Bailout;
 
 float2 C0_Re;    // reference orbit center
 float2 C0_Im;
+int2 C0_Pixel;
+float2 Center_Re_Diff;
+float2 Center_Im_Diff;
 float2 Scale;    // world units per pixel
 
 [numthreads(8,8,1)]
@@ -16,15 +19,13 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= Width || id.y >= Height) return;
 
-    // --- Pixel offset from center ---
-    float2 px = float2((float)id.x + 0.5, (float)id.y + 0.5);
-    float2 centerPx = float2(Width * 0.5, Height * 0.5);
-    float2 offsetPx = px - centerPx;
-
     // --- delta relative to reference orbit (no screen center addition!) ---
     DDComplex delta_c;
-    delta_c.re = dd_mul_float(Scale, offsetPx.x);
-    delta_c.im = dd_mul_float(Scale, offsetPx.y);
+    int2 offsetPx = int2(id.x, id.y) - C0_Pixel;
+    delta_c.re = dd_mul_float(Scale, (float)offsetPx.x);
+    delta_c.im = dd_mul_float(Scale, (float)offsetPx.y);
+    delta_c.re = dd_add(delta_c.re, Center_Re_Diff);
+    delta_c.im = dd_add(delta_c.im, Center_Im_Diff);
 
     // --- Initialize perturbation delta ---
     DDComplex zDelta;
