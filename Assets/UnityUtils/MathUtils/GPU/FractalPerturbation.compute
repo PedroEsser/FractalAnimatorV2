@@ -4,7 +4,7 @@
 RWTexture2D<float4> Result;
 StructuredBuffer<float4> OrbitHL;
 
-int Width, Height, MaxIters;
+int Width, Height, MaxIterations;
 float Bailout;
 
 float2 C0_Re;    // reference orbit center
@@ -13,6 +13,7 @@ int2 C0_Pixel;
 float2 Center_Re_Diff;
 float2 Center_Im_Diff;
 float2 Scale;    // world units per pixel
+int Debug;
 
 [numthreads(8,8,1)]
 void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
@@ -21,22 +22,31 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 
     // --- delta relative to reference orbit (no screen center addition!) ---
     DDComplex delta_c;
+    if(Debug == 1 && abs(id.x - Width/2) < 3 && abs(id.y - Height/2) < 3){
+        Result[int2(id.xy)] = float4(1, 0, 0, 1);
+        return;
+    }
     int2 offsetPx = int2(id.x, id.y) - C0_Pixel;
+
     delta_c.re = dd_mul_float(Scale, (float)offsetPx.x);
     delta_c.im = dd_mul_float(Scale, (float)offsetPx.y);
     delta_c.re = dd_add(delta_c.re, Center_Re_Diff);
     delta_c.im = dd_add(delta_c.im, Center_Im_Diff);
+    if(Debug == 1 && abs(delta_c.re.x) < 5 * Scale.x && abs(delta_c.im.x) < 5 * Scale.x){
+        Result[int2(id.xy)] = float4(0, 1, 0, 1);
+        return;
+    }
 
     // --- Initialize perturbation delta ---
     DDComplex zDelta;
     zDelta.re = dd_make(0.0);
     zDelta.im = dd_make(0.0);
 
-    float escapeIter = (float)MaxIters;
+    float escapeIter = (float)MaxIterations;
     bool escaped = false;
 
     // --- Iterate using reference orbit ---
-    for (uint n = 0; n < MaxIters; n++)
+    for (uint n = 0; n < MaxIterations; n++)
     {
         float4 o = OrbitHL[n];
         DDComplex Zref;
@@ -69,7 +79,7 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
     }
 
     // --- Coloring ---
-    float t = escapeIter / (float)MaxIters;
+    float t = escapeIter / (float)MaxIterations;
     float3 col = lerp(float3(0.05,0.02,0.1), float3(0.9,0.9,1.0), saturate(pow(t, 0.35)));
     if (!escaped) col = float3(0.0, 0.0, 0.0);
 

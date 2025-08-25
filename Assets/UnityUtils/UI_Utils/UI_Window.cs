@@ -5,10 +5,11 @@ using UnityEngine.UI;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 
+namespace UI_Utils{
 public class UI_Window : MonoBehaviour
 {
 
-    public Image Background;
+    public Image ViewPort;
     public RectTransform Rect;
     public float Width => Rect.rect.width;
     public float Height => Rect.rect.height;
@@ -61,4 +62,5 @@ public class UI_Window : MonoBehaviour
     public void MouseScroll(BaseEventData eventData){
         OnMouseScroll.Invoke((PointerEventData)eventData);
     }
+}
 }

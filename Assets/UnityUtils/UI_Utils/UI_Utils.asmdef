@@ -1,9 +1,7 @@
 {
-    "name": "MathTests",
+    "name": "UI_Utils",
     "rootNamespace": "",
-    "references": [
-        "GUID:601d89f63d3b35947ad85db93c29c8be"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
