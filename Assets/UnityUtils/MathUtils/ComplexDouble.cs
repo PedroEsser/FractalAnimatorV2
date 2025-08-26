@@ -71,7 +71,7 @@ public class ComplexDouble
     public static ComplexDouble Polar(double angle) { return new ComplexDouble(Math.Cos(angle), Math.Sin(angle)); }
     public static ComplexDouble Polar(double radius, double angle) { return Polar(angle) * radius; }
 
-    public static ComplexDouble[] rootsOfUnity(int rootCount)
+    public static ComplexDouble[] RootsOfUnity(int rootCount)
     {
         ComplexDouble[] roots = new ComplexDouble[rootCount];
 

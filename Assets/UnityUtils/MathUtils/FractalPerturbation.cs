@@ -21,6 +21,7 @@ public class FractalPerturbation : MonoBehaviour
     public ComplexDouble c0; // world coords of reference orbit (double for orbit builder)
 
     // Fixed-point camera state (authoritative)
+    BigComplex center = BigComplex.FromDecimalString("-0.717413872065201+0.208571862722845i");
     BigInteger centerReF = ToFixed(-0.717413872065201), centerImF = ToFixed(0.208571862722845); // fixed-point center
     BigInteger scaleF = ToFixed(1.0 / 1024.0);               // fixed-point pixel scale (world units per pixel)
     BigInteger c0ReF, c0ImF;         // fixed-point C0 (kept aligned with c0)
@@ -44,8 +45,6 @@ public class FractalPerturbation : MonoBehaviour
 
     void OnEnable()
     {
-        CreateOrResizeTarget();
-        BuildAndUploadOrbit();
         window.OnMouseDown.AddListener(OnMouseDown);
     }
 
@@ -57,8 +56,10 @@ public class FractalPerturbation : MonoBehaviour
 
     void Update()
     {
-        HandleInput();
         CreateOrResizeTarget();
+        if(window.IsMouseOver){
+            HandleInput();
+        }
         BuildAndUploadOrbit();
         Dispatch();
         if (image) image.texture = target;
@@ -285,7 +286,9 @@ public class FractalPerturbation : MonoBehaviour
 
         int kernel = shader.FindKernel("MandelbrotKernel");
         shader.SetBuffer(kernel, "OrbitHL", orbitBuffer);
-        shader.SetTexture(kernel, "Result", target);
+        if(target != null){
+            shader.SetTexture(kernel, "Result", target);
+        }
         shader.SetInt("Debug", debug ? 1 : 0);
         shader.SetFloat("LightDirection", lightDirection);
         shader.SetFloat("LightHeight", lightHeight);

@@ -36,7 +36,9 @@ float4 escapeColor(DDComplex z, DDComplex dz, DDComplex zDelta, uint iterations)
     float saturation = smoothIterations * 2 % 2;
     saturation = abs(saturation - 1);
 
-    return hsv_to_rgb(float3(hue, saturation, 1));
+    //brightness = 1.0;
+
+    return hsv_to_rgb(float3(hue, saturation, brightness));
 }
 
 [numthreads(8,8,1)]
