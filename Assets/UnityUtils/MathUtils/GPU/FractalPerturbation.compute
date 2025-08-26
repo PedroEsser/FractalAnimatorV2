@@ -1,5 +1,6 @@
 #pragma kernel MandelbrotKernel
 #include "DD_Complex.hlsl"
+#include "Utils.cginc"
 
 RWTexture2D<float4> Result;
 StructuredBuffer<float4> OrbitHL;
@@ -14,13 +15,35 @@ float2 Center_Re_Diff;
 float2 Center_Im_Diff;
 float2 Scale;    // world units per pixel
 int Debug;
+float LightDirection;
+float LightHeight;
+
+float4 escapeColor(DDComplex z, DDComplex dz, DDComplex zDelta, uint iterations) {
+    float smoothIterations = iterations + 1.0 - log2(log(dd_complex_abs(z)));
+    float t = log(smoothIterations + 1.0);
+    float hue = frac(
+        0.3 * sin(t * 1.0) + 
+        0.5 * sin(t * 1.618) + 
+        0.2 * sin(t * 2.3)
+    );
+
+    dz = dd_complex_div(z, dz);
+    float2 N = normalize(float2(dz.re.x, dz.im.x));
+    float2 L = normalize(float2(cos(LightDirection), sin(LightDirection)));
+    float brightness = dot(N, L) + LightHeight;
+    brightness /= (1 + LightHeight);
+    brightness = max(0, brightness);
+    float saturation = smoothIterations * 2 % 2;
+    saturation = abs(saturation - 1);
+
+    return hsv_to_rgb(float3(hue, saturation, 1));
+}
 
 [numthreads(8,8,1)]
 void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= Width || id.y >= Height) return;
 
-    // --- delta relative to reference orbit (no screen center addition!) ---
     DDComplex delta_c;
     if(Debug == 1 && abs(id.x - Width/2) < 3 && abs(id.y - Height/2) < 3){
         Result[int2(id.xy)] = float4(1, 0, 0, 1);
@@ -37,51 +60,51 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    // --- Initialize perturbation delta ---
     DDComplex zDelta;
     zDelta.re = dd_make(0.0);
     zDelta.im = dd_make(0.0);
 
-    float escapeIter = (float)MaxIterations;
-    bool escaped = false;
+    DDComplex dZ;
+    dZ.re = dd_make(0.0);
+    dZ.im = dd_make(0.0);
 
-    // --- Iterate using reference orbit ---
+    float escapeIter = (float)MaxIterations;
+    float r2 = 0.0;
+
     for (uint n = 0; n < MaxIterations; n++)
     {
-        float4 o = OrbitHL[n];
+        float4 o = OrbitHL[n * 2];
+        float4 d = OrbitHL[n * 2 + 1];
         DDComplex Zref;
         Zref.re = float2(o.x, o.y);
         Zref.im = float2(o.z, o.w);
+        DDComplex dZref;
+        dZref.re = float2(d.x, d.y);
+        dZref.im = float2(d.z, d.w);
+
+        DDComplex z = dd_complex_add(Zref, zDelta);
+
+        dZ = dd_complex_mul(z, dZ);
+        dZ = dd_complex_mul_float(dZ, 2.0);
+        dZ.re = dd_add(dZ.re, dd_make(1.0));
 
         // delta_{n+1} = 2 * Zref * delta_n + delta_n^2 + delta_c
         DDComplex term1 = dd_complex_mul(Zref, zDelta);
-        term1.re = dd_mul_float(term1.re, 2.0);
-        term1.im = dd_mul_float(term1.im, 2.0);
+        term1 = dd_complex_mul_float(term1, 2.0);
 
         DDComplex term2 = dd_complex_sqr(zDelta);
         zDelta = dd_complex_add(dd_complex_add(term1, term2), delta_c);
 
         // z = Zref + delta
-        DDComplex z;
-        z.re = dd_add(Zref.re, zDelta.re);
-        z.im = dd_add(Zref.im, zDelta.im);
+        z = dd_complex_add(Zref, zDelta);
 
         // Escape check using hi part
-        float r2 = z.re.x * z.re.x + z.im.x * z.im.x;
-        if (!escaped && r2 > Bailout)
+        r2 = z.re.x * z.re.x + z.im.x * z.im.x;
+        if (r2 > Bailout)
         {
-            escaped = true;
-            float mag = sqrt(r2);
-            float nu = (float)n + 1.0 - log2(log(max(mag, 1e-7)));
-            escapeIter = nu;
-            break;
+            Result[int2(id.xy)] = escapeColor(z, dZ, zDelta, n);
+            return;
         }
     }
-
-    // --- Coloring ---
-    float t = escapeIter / (float)MaxIterations;
-    float3 col = lerp(float3(0.05,0.02,0.1), float3(0.9,0.9,1.0), saturate(pow(t, 0.35)));
-    if (!escaped) col = float3(0.0, 0.0, 0.0);
-
-    Result[int2(id.xy)] = float4(col, 1.0);
+    Result[int2(id.xy)] = float4(0.0, 0.0, 0.0, 1);
 }

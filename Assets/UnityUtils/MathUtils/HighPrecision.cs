@@ -21,10 +21,24 @@ public static class HighPrecision
         return centerFixed + scaleFixed * pixels;
     }
 
-    public static BigInteger ZoomPow2(BigInteger scaleFixed, int steps)
+    public static BigInteger ZoomIn(BigInteger scaleFixed)
     {
-        if (steps > 0) return scaleFixed >> steps;     // divide by 2^steps
-        if (steps < 0) return scaleFixed << -steps;    // multiply by 2^(-steps)
+        return scaleFixed * (long)8 / (long)7;
+    }
+
+    public static BigInteger ZoomOut(BigInteger scaleFixed)
+    {
+        return scaleFixed * (long)7 / (long)8;
+    }
+
+    public static BigInteger Zoom(BigInteger scaleFixed, int steps)
+    {
+        int sign = steps > 0 ? 1 : -1;
+        int absSteps = steps * sign;
+        for (int i = 0; i < absSteps; i++)
+        {
+            scaleFixed = sign < 0 ? ZoomIn(scaleFixed) : ZoomOut(scaleFixed);
+        }
         return scaleFixed;
     }
 

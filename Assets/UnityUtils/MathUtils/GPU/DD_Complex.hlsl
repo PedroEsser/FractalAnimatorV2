@@ -78,6 +78,13 @@ DDComplex dd_complex_sub(DDComplex a, DDComplex b) {
     return r;
 }
 
+DDComplex dd_complex_mul_float(DDComplex a, float b) {
+    DDComplex r;
+    r.re = dd_mul_float(a.re, b);
+    r.im = dd_mul_float(a.im, b);
+    return r;
+}
+
 // Multiply two dd complex numbers
 DDComplex dd_complex_mul(DDComplex a, DDComplex b) {
     // (ar + i ai)*(br + i bi) = (ar*br - ai*bi) + i(ar*bi + ai*br)
@@ -108,5 +115,30 @@ DDComplex dd_complex_sqr(DDComplex a) {
     DDComplex r;
     r.re = real;
     r.im = imag;
+    return r;
+}
+
+DDComplex dd_complex_conj(DDComplex a) {
+    DDComplex r;
+    r.re = a.re;
+    r.im = float2(-a.im.x, -a.im.y);
+    return r;
+}
+
+float2 dd_complex_abs_sqr(DDComplex a) {
+    return dd_add(dd_sqr(a.re), dd_sqr(a.im));
+}
+
+float dd_complex_abs(DDComplex a) {
+    return sqrt(dd_complex_abs_sqr(a).x);
+}
+
+DDComplex dd_complex_div(DDComplex a, DDComplex b) {
+    DDComplex conj = dd_complex_conj(b);
+    DDComplex num = dd_complex_mul(a, conj);
+    float2 denom = dd_complex_abs_sqr(b);
+    DDComplex r;
+    r.re = dd_mul_float(num.re, 1.0 / denom.x);
+    r.im = dd_mul_float(num.im, 1.0 / denom.x);
     return r;
 }

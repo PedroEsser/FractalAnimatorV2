@@ -30,15 +30,17 @@ public class FractalPerturbation : MonoBehaviour
     public int maxIterations = 200;
     public float bailout = 4f;
 
-    [Header("Resolution")]
-    public int width = 1024;
-    public int height = 1024;
+
+    public int Width => (int)window.Width;
+    public int Height => (int)window.Height;
 
     ComputeBuffer orbitBuffer;
     public RawImage image;
     UnityEngine.Vector2? lastMousePos;
     public UI_Window window;
     public bool debug = true;
+    public float lightDirection = 0.0f;
+    public float lightHeight = 2.0f;
 
     void OnEnable()
     {
@@ -81,7 +83,7 @@ public class FractalPerturbation : MonoBehaviour
         if (Mathf.Abs(scroll) > 0.0001f)
         {
             int steps = (int)Mathf.Round(scroll);
-            scaleF = ZoomPow2(scaleF, steps); // exact (bit) shift
+            scaleF = Zoom(scaleF, steps);
         }
 
         // Drag: integer pixel deltas
@@ -111,22 +113,18 @@ public class FractalPerturbation : MonoBehaviour
     void CreateOrResizeTarget()
     {
         // Ensure width/height reflect the actual render target we’ll dispatch to
-        if (target != null && (target.width != width || target.height != height))
+        if (target != null && (target.width != Width || target.height != Height))
         {
             target.Release();
             target = null;
         }
 
-        if (target == null)
+        if (target == null && Width > 0 && Height > 0)
         {
-            target = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            target = new RenderTexture(Width, Height, 0, RenderTextureFormat.ARGBFloat);
             target.enableRandomWrite = true;
             target.Create();
         }
-
-        // Keep our fields aligned to the texture (in case width/height changed via inspector)
-        width  = target.width;
-        height = target.height;
     }
 
     void ReleaseBuffers()
@@ -137,16 +135,20 @@ public class FractalPerturbation : MonoBehaviour
             orbitBuffer = null;
         }
     }
-    List<ComplexDouble> BuildReferenceOrbit(ComplexDouble c, int N)
+    (List<ComplexDouble> orbit, List<ComplexDouble> derivativeOrbit) BuildReferenceOrbit(ComplexDouble c, int N)
     {
-        var list = new List<ComplexDouble>(N);
+        List<ComplexDouble> orbit = new List<ComplexDouble>(N);
+        List<ComplexDouble> derivativeOrbit = new List<ComplexDouble>(N);
         ComplexDouble z = new ComplexDouble(0.0, 0.0);
+        ComplexDouble dZ = new ComplexDouble(0.0, 0.0);
         for (int i = 0; i < N; i++)
         {
-            list.Add(z);
+            orbit.Add(z);
+            derivativeOrbit.Add(dZ);
             z = z * z + c;
+            dZ = 2 * z * dZ + ComplexDouble.ONE;
         }
-        return list;
+        return (orbit, derivativeOrbit);
     }
 
     bool IsSafeReference(ComplexDouble c, int? maxIter= null, float? bailoutVal= null)
@@ -165,7 +167,7 @@ public class FractalPerturbation : MonoBehaviour
     // Try to pick a safe reference. First search near lastRefPixel, then around center with growing radius.
     (bool found, int dx, int dy, ComplexDouble cRef) PickSafeReferencePixel(Vector2Int anchor, int maxRadius = 3)
     {
-        Vector2Int diffPixels = new Vector2Int(anchor.x - width/2, anchor.y - height/2);
+        Vector2Int diffPixels = new Vector2Int(anchor.x - Width/2, anchor.y - Height/2);
         
         for (int dy = -maxRadius + diffPixels.y; dy <= maxRadius + diffPixels.y; dy++)
         for (int dx = -maxRadius + diffPixels.x; dx <= maxRadius + diffPixels.x; dx++)
@@ -185,10 +187,10 @@ public class FractalPerturbation : MonoBehaviour
     }
 
     void HandleRebase(Vector2Int? anchor = null, int maxRadius = 1){
-        var pick = PickSafeReferencePixel(anchor ?? new Vector2Int(width/2, height/2), maxRadius);
+        var pick = PickSafeReferencePixel(anchor ?? new Vector2Int(Width/2, Height/2), maxRadius);
         if (pick.found)
         {
-            c0Pixel = new Vector2Int(width / 2 + pick.dx, height / 2 + pick.dy);
+            c0Pixel = new Vector2Int(Width / 2 + pick.dx, Height / 2 + pick.dy);
             c0 = pick.cRef;
 
             c0ReF = AddPixels(centerReF, pick.dx, scaleF);
@@ -248,16 +250,19 @@ public class FractalPerturbation : MonoBehaviour
     void UpdateShader(){
         ReleaseBuffers();
 
-        var orbit = BuildReferenceOrbit(c0, maxIterations);
+        var (orbit, derivativeOrbit) = BuildReferenceOrbit(c0, maxIterations);
 
-        var packed = new UnityEngine.Vector4[orbit.Count];
-        for (int i = 0; i < orbit.Count; i++) packed[i] = orbit[i].AsVector4();
+        var packed = new UnityEngine.Vector4[orbit.Count * 2];
+        for (int i = 0; i < orbit.Count; i++) {
+            packed[i * 2] = orbit[i].AsVector4();
+            packed[i * 2 + 1] = derivativeOrbit[i].AsVector4();
+        }
 
         orbitBuffer = new ComputeBuffer(packed.Length, sizeof(float) * 4);
         orbitBuffer.SetData(packed);
 
-        shader.SetInt("Width",  width);
-        shader.SetInt("Height", height);
+        shader.SetInt("Width",  Width);
+        shader.SetInt("Height", Height);
         shader.SetInt("MaxIterations", maxIterations);
         shader.SetFloat("Bailout", bailout);
 
@@ -282,13 +287,15 @@ public class FractalPerturbation : MonoBehaviour
         shader.SetBuffer(kernel, "OrbitHL", orbitBuffer);
         shader.SetTexture(kernel, "Result", target);
         shader.SetInt("Debug", debug ? 1 : 0);
+        shader.SetFloat("LightDirection", lightDirection);
+        shader.SetFloat("LightHeight", lightHeight);
     }
 
     void Dispatch()
     {
         int kernel = shader.FindKernel("MandelbrotKernel");
-        int gx = Mathf.CeilToInt(width  / 8.0f);
-        int gy = Mathf.CeilToInt(height / 8.0f);
+        int gx = Mathf.CeilToInt(Width  / 8.0f);
+        int gy = Mathf.CeilToInt(Height / 8.0f);
 
         gx = Mathf.Max(1, gx);
         gy = Mathf.Max(1, gy);
