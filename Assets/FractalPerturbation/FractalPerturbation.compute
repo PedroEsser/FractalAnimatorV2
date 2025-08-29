@@ -1,18 +1,16 @@
 #pragma kernel MandelbrotKernel
-#include "DD_Complex.hlsl"
-#include "Utils.cginc"
+#include "Assets/UnityUtils/MathUtils/GPU/DD_Complex.hlsl"
+#include "Assets/UnityUtils/MathUtils/GPU/Utils.cginc"
 
 RWTexture2D<float4> Result;
-StructuredBuffer<float4> OrbitHL;
+StructuredBuffer<float4> OrbitData;
 
 int Width, Height, MaxIterations;
 float Bailout;
 
-float2 C0_Re;    // reference orbit center
-float2 C0_Im;
+float4 C0;
 int2 C0_Pixel;
-float2 Center_Re_Diff;
-float2 Center_Im_Diff;
+float4 Center_Diff;
 float2 Scale;    // world units per pixel
 int Debug;
 float LightDirection;
@@ -35,7 +33,7 @@ float4 escapeColor(DDComplex z, DDComplex dz, DDComplex zDelta, uint iterations)
     brightness = max(0, brightness);
     float saturation = smoothIterations * 2 % 2;
     saturation = abs(saturation - 1);
-
+    
     //brightness = 1.0;
 
     return hsv_to_rgb(float3(hue, saturation, brightness));
@@ -46,17 +44,22 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= Width || id.y >= Height) return;
 
-    DDComplex delta_c;
-    if(Debug == 1 && abs(id.x - Width/2) < 3 && abs(id.y - Height/2) < 3){
+    int2 pixel = int2(id.xy);
+    if(Debug == 1 && abs(pixel.x - Width/2) < 2 && abs(pixel.y - Height/2) < 2){
         Result[int2(id.xy)] = float4(1, 0, 0, 1);
         return;
     }
-    int2 offsetPx = int2(id.x, id.y) - C0_Pixel;
+    int2 offsetPx = pixel - C0_Pixel;
+    if(Debug == 1 && abs(offsetPx.x) < 2 && abs(offsetPx.y) < 2){
+        Result[int2(id.xy)] = float4(0, 0, 1, 1);
+        return;
+    }
 
+    DDComplex delta_c;
     delta_c.re = dd_mul_float(Scale, (float)offsetPx.x);
     delta_c.im = dd_mul_float(Scale, (float)offsetPx.y);
-    delta_c.re = dd_add(delta_c.re, Center_Re_Diff);
-    delta_c.im = dd_add(delta_c.im, Center_Im_Diff);
+    delta_c.re = dd_add(delta_c.re, Center_Diff.xy);
+    delta_c.im = dd_add(delta_c.im, Center_Diff.zw);
     if(Debug == 1 && abs(delta_c.re.x) < 5 * Scale.x && abs(delta_c.im.x) < 5 * Scale.x){
         Result[int2(id.xy)] = float4(0, 1, 0, 1);
         return;
@@ -75,8 +78,8 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 
     for (uint n = 0; n < MaxIterations; n++)
     {
-        float4 o = OrbitHL[n * 2];
-        float4 d = OrbitHL[n * 2 + 1];
+        float4 o = OrbitData[n * 2];
+        float4 d = OrbitData[n * 2 + 1];
         DDComplex Zref;
         Zref.re = float2(o.x, o.y);
         Zref.im = float2(o.z, o.w);
