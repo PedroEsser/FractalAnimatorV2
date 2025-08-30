@@ -48,7 +48,7 @@ public class RebaseHandler : MonoBehaviour
 
     void OnGUI()
     {
-        if(!debug) return;
+        if(!debug || C0 == null) return;
         
         GUIStyle style = new GUIStyle();
         style.fontSize = 20;
@@ -91,7 +91,7 @@ public class RebaseHandler : MonoBehaviour
         return true;
     }
 
-    (bool found, int dx, int dy, BigComplex cRef) PickSafeReferencePixel(Vector2Int anchor, int maxRadius = 3)
+    (bool found, int dx, int dy, BigComplex cRef) PickSafeReferencePixel(Vector2Int anchor, int maxRadius)
     {
         Vector2Int diffPixels = new Vector2Int(anchor.x - Width/2, anchor.y - Height/2);
         
@@ -106,24 +106,38 @@ public class RebaseHandler : MonoBehaviour
         return (false, 0, 0, null);
     }
 
-    public UnityEngine.Vector4[] BuildReferenceOrbitData(BigComplex c, int N)
+    public UnityEngine.Vector4[] BuildReferenceOrbitDataForExactPerturbation(BigComplex c, int N)
     {
-        UnityEngine.Vector4[] orbitData = new UnityEngine.Vector4[2*N];
-        BigComplex z = BigComplex.ZERO;
-        BigComplex dZ = BigComplex.ZERO;
+        UnityEngine.Vector4[] orbitData = new UnityEngine.Vector4[N];
+        BigComplex Z = BigComplex.ZERO;
         for (int i = 0; i < N; i++)
         {
-            orbitData[i*2] = z.ToVector4();
-            orbitData[i*2+1] = dZ.ToVector4();
-            dZ = 2 * z * dZ + BigComplex.ONE;
-            z = z.Square() + c;
+            orbitData[i] = Z.ToVector4();
+            Z = Z.Square() + c;
         }
-        Debug.Log($"Last z: {z}");
+        return orbitData;
+    }
+
+    public UnityEngine.Vector4[] BuildReferenceOrbitDataForSeriesApproximation(BigComplex c, int N)
+    {
+        UnityEngine.Vector4[] orbitData = new UnityEngine.Vector4[3*N];
+        BigComplex Z = BigComplex.ZERO;
+        BigComplex A = BigComplex.ZERO;
+        BigComplex B = BigComplex.ZERO;
+        for (int i = 0; i < N; i++)
+        {
+            orbitData[i * 3 + 0] = Z.ToVector4();
+            orbitData[i * 3 + 1] = A.ToVector4();
+            orbitData[i * 3 + 2] = B.ToVector4();
+            B = 2 * Z * B + A.Square();
+            A = 2 * Z * A + BigComplex.ONE;
+            Z = Z.Square() + c;
+        }
         return orbitData;
     }
     
 
-    void HandleRebase(Vector2Int? anchor = null, int maxRadius = 3){
+    void HandleRebase(Vector2Int? anchor = null, int maxRadius = 2){
         var pick = PickSafeReferencePixel(anchor ?? new Vector2Int(Width/2, Height/2), maxRadius);
         if (pick.found)
         {
@@ -131,7 +145,8 @@ public class RebaseHandler : MonoBehaviour
             C0Pixel = new Vector2Int(Width / 2 + pick.dx, Height / 2 + pick.dy);
             C0 = pick.cRef;
             ReleaseBuffers();
-            UnityEngine.Vector4[] orbitData = BuildReferenceOrbitData(C0, maxIterations);
+            UnityEngine.Vector4[] orbitData = BuildReferenceOrbitDataForExactPerturbation(C0, maxIterations);
+            //UnityEngine.Vector4[] orbitData = BuildReferenceOrbitDataForSeriesApproximation(C0, maxIterations);
             orbitBuffer = new ComputeBuffer(orbitData.Length, sizeof(float) * 4);
             orbitBuffer.SetData(orbitData);
             needNewRef = false;
@@ -143,6 +158,7 @@ public class RebaseHandler : MonoBehaviour
     }
 
     public void UpdateShader(ComputeShader shader, int kernel){
+        if(C0 == null) return;
         shader.SetVector("C0", C0.ToVector4());
         BigComplex delta = Center - C0;
         shader.SetVector("Center_Diff", delta.ToVector4());

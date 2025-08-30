@@ -75,8 +75,6 @@ public class HighPrecisionTests
         a = BigComplex.ParseDecimalString("1");
         Assert.AreEqual(a, BigComplex.ONE);
         a = BigComplex.ParseDecimalString("i");
-        Debug.Log("a: " + a);
-        Debug.Log("i: " + BigComplex.I);
         Assert.AreEqual(a, BigComplex.I);
 
         a = BigComplex.ParseDecimalString("1234 + 5678i");

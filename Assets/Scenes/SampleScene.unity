@@ -570,6 +570,7 @@ GameObject:
   - component: {fileID: 1711560931}
   - component: {fileID: 1711560930}
   - component: {fileID: 1711560929}
+  - component: {fileID: 1711560932}
   m_Layer: 5
   m_Name: RawImage
   m_TagString: Untagged
@@ -610,12 +611,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   shader: {fileID: 7200000, guid: 3ee80577488e7ee44b07a3b2718e0ada, type: 3}
   target: {fileID: 0}
-  c0Pixel: {x: -1, y: -1}
-  maxIterations: 200
-  bailout: 1000
+  rebaseHandler: {fileID: 1711560932}
+  kernel: 0
   image: {fileID: 1711560930}
   window: {fileID: 753897383}
-  debug: 0
   lightDirection: 0
   lightHeight: 1.5
 --- !u!114 &1711560930
@@ -653,6 +652,22 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1711560927}
   m_CullTransparentMesh: 1
+--- !u!114 &1711560932
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1711560927}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d193fa9f34aceed4180430764cfbed53, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  C0Pixel: {x: -1, y: -1}
+  maxIterations: 200
+  bailout: 4
+  debug: 1
 --- !u!1 &1808912470
 GameObject:
   m_ObjectHideFlags: 0

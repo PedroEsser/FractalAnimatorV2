@@ -16,7 +16,7 @@ int Debug;
 float LightDirection;
 float LightHeight;
 
-float4 escapeColor(DDComplex z, DDComplex dz, DDComplex zDelta, uint iterations) {
+float4 escapeColor(DDComplex z, DDComplex dz, uint iterations) {
     float smoothIterations = iterations + 1.0 - log2(log(dd_complex_abs(z)));
     float t = log(smoothIterations + 1.0);
     float hue = frac(
@@ -39,32 +39,7 @@ float4 escapeColor(DDComplex z, DDComplex dz, DDComplex zDelta, uint iterations)
     return hsv_to_rgb(float3(hue, saturation, brightness));
 }
 
-[numthreads(8,8,1)]
-void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= Width || id.y >= Height) return;
-
-    int2 pixel = int2(id.xy);
-    if(Debug == 1 && abs(pixel.x - Width/2) < 2 && abs(pixel.y - Height/2) < 2){
-        Result[int2(id.xy)] = float4(1, 0, 0, 1);
-        return;
-    }
-    int2 offsetPx = pixel - C0_Pixel;
-    if(Debug == 1 && abs(offsetPx.x) < 2 && abs(offsetPx.y) < 2){
-        Result[int2(id.xy)] = float4(0, 0, 1, 1);
-        return;
-    }
-
-    DDComplex delta_c;
-    delta_c.re = dd_mul_float(Scale, (float)offsetPx.x);
-    delta_c.im = dd_mul_float(Scale, (float)offsetPx.y);
-    delta_c.re = dd_add(delta_c.re, Center_Diff.xy);
-    delta_c.im = dd_add(delta_c.im, Center_Diff.zw);
-    if(Debug == 1 && abs(delta_c.re.x) < 5 * Scale.x && abs(delta_c.im.x) < 5 * Scale.x){
-        Result[int2(id.xy)] = float4(0, 1, 0, 1);
-        return;
-    }
-
+float4 PerturbationExact(DDComplex delta_c){
     DDComplex zDelta;
     zDelta.re = dd_make(0.0);
     zDelta.im = dd_make(0.0);
@@ -78,14 +53,10 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
 
     for (uint n = 0; n < MaxIterations; n++)
     {
-        float4 o = OrbitData[n * 2];
-        float4 d = OrbitData[n * 2 + 1];
+        float4 o = OrbitData[n];
         DDComplex Zref;
         Zref.re = float2(o.x, o.y);
         Zref.im = float2(o.z, o.w);
-        DDComplex dZref;
-        dZref.re = float2(d.x, d.y);
-        dZref.im = float2(d.z, d.w);
 
         DDComplex z = dd_complex_add(Zref, zDelta);
 
@@ -107,9 +78,78 @@ void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
         r2 = z.re.x * z.re.x + z.im.x * z.im.x;
         if (r2 > Bailout)
         {
-            Result[int2(id.xy)] = escapeColor(z, dZ, zDelta, n);
-            return;
+            return escapeColor(z, dZ, n);
         }
     }
-    Result[int2(id.xy)] = float4(0.0, 0.0, 0.0, 1);
+    return float4(0.0, 0.0, 0.0, 1);
 }
+
+float4 PerturbationSeriesApproximation(DDComplex delta_c)
+{
+    DDComplex delta_c_squared = dd_complex_sqr(delta_c);
+
+    float escapeIter = (float)MaxIterations;
+    float r2 = 0.0;
+
+    for (uint n = 0; n < MaxIterations; n++)
+    {
+        float4 O = OrbitData[n * 3];
+        float4 A = OrbitData[n * 3 + 1];
+        float4 B = OrbitData[n * 3 + 2];
+        DDComplex Zref;
+        Zref.re = float2(O.x, O.y);
+        Zref.im = float2(O.z, O.w);
+        DDComplex Aref;
+        Aref.re = float2(A.x, A.y);
+        Aref.im = float2(A.z, A.w);
+        DDComplex Bref;
+        Bref.re = float2(B.x, B.y);
+        Bref.im = float2(B.z, B.w);
+
+        Bref = dd_complex_mul(Bref, delta_c_squared);
+        Aref = dd_complex_mul(Aref, delta_c);
+
+        DDComplex z = dd_complex_add(Zref, dd_complex_add(Aref, Bref));
+        r2 = z.re.x * z.re.x + z.im.x * z.im.x;
+        if (r2 > Bailout)
+        {
+            return escapeColor(z, z, n);
+        }
+    }
+    return float4(0.0, 0.0, 0.0, 1);
+}
+
+
+
+[numthreads(8,8,1)]
+void MandelbrotKernel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Width || id.y >= Height) return;
+
+    int2 pixel = int2(id.xy);
+    int2 centerPixelDiff = pixel - int2(Width/2, Height/2);
+    if(Debug == 1 && length(centerPixelDiff) < 2){
+        Result[int2(id.xy)] = float4(1, 0, 0, 1);
+        return;
+    }
+    int2 offsetPx = pixel - C0_Pixel;
+    if(Debug == 1 && length(offsetPx) < 4){
+        Result[int2(id.xy)] = float4(0, 0, 1, 1);
+        return;
+    }
+
+    DDComplex delta_c;
+    delta_c.re = dd_mul_float(Scale, (float)offsetPx.x);
+    delta_c.im = dd_mul_float(Scale, (float)offsetPx.y);
+    delta_c.re = dd_add(delta_c.re, Center_Diff.xy);
+    delta_c.im = dd_add(delta_c.im, Center_Diff.zw);
+    if(Debug == 1 && abs(delta_c.re.x) < 3 * Scale.x && abs(delta_c.im.x) < 3 * Scale.x){
+        Result[int2(id.xy)] = float4(0, 1, 0, 1);
+        return;
+    }
+
+    Result[int2(id.xy)] = PerturbationExact(delta_c);
+    //Result[int2(id.xy)] = PerturbationSeriesApproximation(delta_c);
+}
+
+
